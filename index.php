@@ -1,22 +1,28 @@
 <?php
 /**
- * Revolt Roleplay - Secure PHP Proxy Handshake
- * This file acts as a bridge between the Launcher and the MTA Server.
+ * Revolt Roleplay - Railway Optimized Proxy
+ * This script handles HWID authorization from the launcher and verification from the MTA server.
  */
 
 header('Content-Type: application/json');
 
-// 1. الإعدادات الأساسية
+// 1. Settings
 define('SHARED_SECRET', 'RevoltRP_Exclusive_Security_2024!');
-define('AUTH_STORAGE', 'auth_list.json'); // ملف لتخزين الأجهزة المصرح بها
-define('EXPIRY_TIME', 120); // مدة صلاحية التصريح (ثانية)
+// Use /tmp/ in Railway to ensure write permissions
+define('AUTH_STORAGE', '/tmp/auth_list.json'); 
+define('EXPIRY_TIME', 120);
 
-// 2. معالجة الطلبات القادمة من اللانشر (POST)
+// Ensure file exists
+if (!file_exists(AUTH_STORAGE)) {
+    file_put_contents(AUTH_STORAGE, json_encode([]));
+}
+
+// 2. Handle Pulse from Launcher (POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $input = file_get_contents('php://input');
     $data = json_decode($input, true);
 
-    if (!$data || !isset($data[0]) || !isset($data[1])) {
+    if (!$data || count($data) < 2) {
         die(json_encode(['success' => false, 'message' => 'INVALID_FORMAT']));
     }
 
@@ -27,50 +33,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die(json_encode(['success' => false, 'message' => 'INVALID_KEY']));
     }
 
-    // قراءة القائمة الحالية
-    $list = [];
-    if (file_exists(AUTH_STORAGE)) {
-        $list = json_decode(file_get_contents(AUTH_STORAGE), true) ?: [];
-    }
-
-    // إضافة الجهاز الجديد مع وقت التسجيل
+    $list = json_decode(file_get_contents(AUTH_STORAGE), true) ?: [];
     $list[$hwid] = time();
 
-    // تنظيف القائمة من الأجهزة القديمة
-    $currentTime = time();
-    foreach ($list as $id => $timestamp) {
-        if ($currentTime - $timestamp > EXPIRY_TIME) {
-            unset($list[$id]);
-        }
+    // Cleanup old entries
+    foreach ($list as $id => $time) {
+        if (time() - $time > EXPIRY_TIME) unset($list[$id]);
     }
 
-    // حفظ القائمة
     file_put_contents(AUTH_STORAGE, json_encode($list));
-
-    echo json_encode(['success' => true, 'message' => 'AUTH_SUCCESS', 'hwid' => $hwid]);
+    echo json_encode(['success' => true, 'message' => 'AUTH_SUCCESS']);
     exit;
 }
 
-// 3. معالجة طلبات التحقق القادمة من السيرفر (GET)
-if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check'])) {
+// 3. Handle Check from MTA Server (GET)
+if (isset($_GET['check'])) {
     $hwidToCheck = strtoupper(trim($_GET['check']));
+    $list = json_decode(file_get_contents(AUTH_STORAGE), true) ?: [];
     
-    if (file_exists(AUTH_STORAGE)) {
-        $list = json_decode(file_get_contents(AUTH_STORAGE), true) ?: [];
-        
-        if (isset($list[$hwidToCheck])) {
-            $timestamp = $list[$hwidToCheck];
-            if (time() - $timestamp <= EXPIRY_TIME) {
-                // التصريح صالح
-                unset($list[$hwidToCheck]); // مسحه لمنع إعادة الاستخدام
-                file_put_contents(AUTH_STORAGE, json_encode($list));
-                die("AUTHORIZED");
-            }
-        }
+    if (isset($list[$hwidToCheck]) && (time() - $list[$hwidToCheck] <= EXPIRY_TIME)) {
+        unset($list[$hwidToCheck]); // One-time use for security
+        file_put_contents(AUTH_STORAGE, json_encode($list));
+        die("AUTHORIZED");
     }
-    
     die("DENIED");
 }
 
-echo json_encode(['success' => false, 'message' => 'ACCESS_DENIED']);
-
+// Status page (for debugging)
+echo json_encode(['status' => 'online', 'service' => 'Revolt Auth Proxy']);
