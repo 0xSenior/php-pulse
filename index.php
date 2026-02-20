@@ -73,3 +73,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['check'])) {
 }
 
 echo json_encode(['success' => false, 'message' => 'ACCESS_DENIED']);
+
